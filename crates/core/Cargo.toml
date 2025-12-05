@@ -23,11 +23,6 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 
-# Hooking (custom implementation using iced-x86, works on stable Rust)
-iced-x86.workspace = true
+# Hooking (SafetyHook via FFI, region for vtable hooks)
 region.workspace = true
 paste.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-nix.workspace = true
-libc.workspace = true

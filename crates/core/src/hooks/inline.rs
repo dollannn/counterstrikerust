@@ -1,15 +1,14 @@
-//! Inline function hooks using custom trampolines
+//! Inline function hooks using SafetyHook
 //!
-//! Provides cross-platform function detouring for x86_64 using iced-x86 for
-//! instruction decoding and relocation. Works on stable Rust.
+//! Provides cross-platform function detouring for x86_64 using SafetyHook.
+//! SafetyHook provides proper hook chaining for multi-framework compatibility.
 
-use iced_x86::{BlockEncoder, BlockEncoderOptions, Decoder, DecoderOptions, InstructionBlock};
 use parking_lot::RwLock;
 use slotmap::{new_key_type, SlotMap};
-use std::ptr::NonNull;
+use std::ffi::c_void;
 use std::sync::LazyLock;
 
-use super::trampoline::alloc_trampoline_sized;
+use super::ffi;
 
 new_key_type! {
     /// Handle for an inline hook
@@ -47,26 +46,22 @@ pub enum HookError {
     RelocationFailed(String),
 }
 
-/// Minimum bytes needed for a JMP rel32 on x86_64
-const MIN_HOOK_SIZE: usize = 5;
-
-/// Size for trampoline buffer
-const TRAMPOLINE_SIZE: usize = 64;
+impl From<ffi::HookResult> for HookError {
+    fn from(result: ffi::HookResult) -> Self {
+        HookError::DetourCreation(result.to_error_string().to_string())
+    }
+}
 
 /// Internal storage for an inline hook
 struct InlineHookEntry {
-    /// Target function address
-    target: *const u8,
+    /// SafetyHook handle
+    handle: *mut ffi::InlineHookHandle,
 
-    /// Trampoline that jumps to detour (stored to keep allocation alive)
-    #[allow(dead_code)]
-    trampoline: NonNull<u8>,
+    /// Target function address (for logging/debugging)
+    target: usize,
 
-    /// Original bytes that were overwritten
-    original_bytes: Vec<u8>,
-
-    /// Trampoline to call original function
-    original_trampoline: NonNull<u8>,
+    /// Trampoline (original function) pointer
+    trampoline: *const (),
 
     /// Whether the hook is currently enabled
     enabled: bool,
@@ -75,9 +70,19 @@ struct InlineHookEntry {
     name: String,
 }
 
-// SAFETY: Hook entries are protected by RwLock
+// SAFETY: Hook entries are protected by RwLock, handles are thread-safe
 unsafe impl Send for InlineHookEntry {}
 unsafe impl Sync for InlineHookEntry {}
+
+impl Drop for InlineHookEntry {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            unsafe {
+                ffi::safetyhook_destroy_inline(self.handle);
+            }
+        }
+    }
+}
 
 /// Global inline hook registry
 static INLINE_HOOKS: LazyLock<RwLock<SlotMap<InlineHookKey, InlineHookEntry>>> =
@@ -88,7 +93,6 @@ static INLINE_HOOKS: LazyLock<RwLock<SlotMap<InlineHookKey, InlineHookEntry>>> =
 /// # Safety
 /// - `target` must be a valid function pointer
 /// - `detour` must be a valid function pointer with a compatible signature
-/// - The target function must be at least 5 bytes (for the JMP)
 ///
 /// # Arguments
 /// * `name` - Debug name for the hook
@@ -102,9 +106,6 @@ pub unsafe fn create_inline_hook(
     target: *const (),
     detour: *const (),
 ) -> Result<(InlineHookKey, *const ()), HookError> {
-    let target = target as *const u8;
-    let detour = detour as *const u8;
-
     tracing::debug!(
         "Creating inline hook '{}' at {:x} -> {:x}",
         name,
@@ -112,79 +113,29 @@ pub unsafe fn create_inline_hook(
         detour as usize
     );
 
-    // Decode instructions at target to find safe cut point
-    let mut decoder = Decoder::with_ip(
-        64,
-        std::slice::from_raw_parts(target, 32),
-        target as u64,
-        DecoderOptions::NONE,
+    let mut handle: *mut ffi::InlineHookHandle = std::ptr::null_mut();
+    let mut trampoline: *const c_void = std::ptr::null();
+
+    let result = ffi::safetyhook_create_inline(
+        target as *const c_void,
+        detour as *const c_void,
+        &mut handle,
+        &mut trampoline,
     );
 
-    let mut instructions = Vec::new();
-    let mut total_size = 0usize;
-
-    while total_size < MIN_HOOK_SIZE {
-        let instr = decoder.decode();
-        if instr.is_invalid() {
-            return Err(HookError::InvalidAddress(target as usize));
-        }
-        total_size += instr.len();
-        instructions.push(instr);
+    if !result.is_success() {
+        tracing::error!(
+            "Failed to create inline hook '{}': {}",
+            name,
+            result.to_error_string()
+        );
+        return Err(result.into());
     }
-
-    tracing::debug!(
-        "Hook site: {} bytes, {} instructions",
-        total_size,
-        instructions.len()
-    );
-
-    // Allocate trampoline for original function call
-    let original_trampoline = alloc_trampoline_sized(target, TRAMPOLINE_SIZE)
-        .ok_or_else(|| HookError::MemoryProtection("Failed to allocate trampoline".into()))?;
-
-    // Build trampoline: relocated original instructions + JMP back
-    let return_addr = target as u64 + total_size as u64;
-    let trampoline_code = build_original_trampoline(
-        &instructions,
-        original_trampoline.as_ptr() as u64,
-        return_addr,
-    )?;
-
-    // Copy trampoline code
-    std::ptr::copy_nonoverlapping(
-        trampoline_code.as_ptr(),
-        original_trampoline.as_ptr(),
-        trampoline_code.len(),
-    );
-
-    // Save original bytes
-    let original_bytes = std::slice::from_raw_parts(target, total_size).to_vec();
-
-    // Make target writable
-    region::protect(target, total_size, region::Protection::READ_WRITE_EXECUTE)
-        .map_err(|e| HookError::MemoryProtection(e.to_string()))?;
-
-    // Write JMP to detour
-    let target_mut = target as *mut u8;
-    *target_mut = 0xE9; // JMP rel32
-
-    let rel_offset = calculate_rel32(target as u64 + 5, detour as u64)?;
-    std::ptr::copy_nonoverlapping(&rel_offset as *const i32 as *const u8, target_mut.add(1), 4);
-
-    // Fill remaining bytes with NOPs
-    for i in 5..total_size {
-        *target_mut.add(i) = 0x90;
-    }
-
-    // Restore protection
-    region::protect(target, total_size, region::Protection::READ_EXECUTE)
-        .map_err(|e| HookError::MemoryProtection(e.to_string()))?;
 
     let entry = InlineHookEntry {
-        target,
-        trampoline: original_trampoline,
-        original_bytes,
-        original_trampoline,
+        handle,
+        target: target as usize,
+        trampoline: trampoline as *const (),
         enabled: true,
         name: name.to_string(),
     };
@@ -193,45 +144,7 @@ pub unsafe fn create_inline_hook(
 
     tracing::info!("Created inline hook '{}' at {:x}", name, target as usize);
 
-    Ok((key, original_trampoline.as_ptr() as *const ()))
-}
-
-/// Build trampoline that executes original instructions and jumps back
-fn build_original_trampoline(
-    instructions: &[iced_x86::Instruction],
-    trampoline_addr: u64,
-    return_addr: u64,
-) -> Result<Vec<u8>, HookError> {
-    // Relocate instructions to trampoline address
-    let block = InstructionBlock::new(instructions, trampoline_addr);
-
-    let result = BlockEncoder::encode(64, block, BlockEncoderOptions::NONE)
-        .map_err(|e| HookError::RelocationFailed(format!("{:?}", e)))?;
-
-    let mut code = result.code_buffer;
-
-    // Add JMP back to original function (after hooked bytes)
-    let jmp_from = trampoline_addr + code.len() as u64 + 5;
-    let rel_offset = calculate_rel32(jmp_from, return_addr)?;
-
-    code.push(0xE9); // JMP rel32
-    code.extend_from_slice(&rel_offset.to_le_bytes());
-
-    Ok(code)
-}
-
-/// Calculate relative offset for JMP/CALL rel32
-fn calculate_rel32(from: u64, to: u64) -> Result<i32, HookError> {
-    let offset = to as i64 - from as i64;
-
-    if offset > i32::MAX as i64 || offset < i32::MIN as i64 {
-        return Err(HookError::RelocationFailed(format!(
-            "Target too far for rel32: from {:x} to {:x} (offset: {})",
-            from, to, offset
-        )));
-    }
-
-    Ok(offset as i32)
+    Ok((key, trampoline as *const ()))
 }
 
 /// Enable an inline hook
@@ -243,33 +156,17 @@ pub fn enable_inline_hook(key: InlineHookKey) -> Result<(), HookError> {
         return Ok(()); // Already enabled
     }
 
-    unsafe {
-        let total_size = entry.original_bytes.len();
+    let result = unsafe { ffi::safetyhook_enable_inline(entry.handle) };
 
-        // Make target writable
-        region::protect(
-            entry.target,
-            total_size,
-            region::Protection::READ_WRITE_EXECUTE,
-        )
-        .map_err(|e| HookError::MemoryProtection(e.to_string()))?;
-
-        // Decode to find detour address from trampoline
-        // The original bytes were replaced with JMP, so we need to restore the JMP
-
-        // For now, we assume the hook was installed correctly and the JMP is still there
-        // This is a simplification - a full implementation would store the detour address
-
-        // Restore protection
-        region::protect(entry.target, total_size, region::Protection::READ_EXECUTE)
-            .map_err(|e| HookError::MemoryProtection(e.to_string()))?;
+    if !result.is_success() {
+        return Err(HookError::EnableFailed(result.to_error_string().to_string()));
     }
 
     entry.enabled = true;
     tracing::info!(
         "Enabled inline hook '{}' at {:x}",
         entry.name,
-        entry.target as usize
+        entry.target
     );
     Ok(())
 }
@@ -283,58 +180,34 @@ pub fn disable_inline_hook(key: InlineHookKey) -> Result<(), HookError> {
         return Ok(()); // Already disabled
     }
 
-    unsafe {
-        let total_size = entry.original_bytes.len();
+    let result = unsafe { ffi::safetyhook_disable_inline(entry.handle) };
 
-        // Make target writable
-        region::protect(
-            entry.target,
-            total_size,
-            region::Protection::READ_WRITE_EXECUTE,
-        )
-        .map_err(|e| HookError::MemoryProtection(e.to_string()))?;
-
-        // Restore original bytes
-        std::ptr::copy_nonoverlapping(
-            entry.original_bytes.as_ptr(),
-            entry.target as *mut u8,
-            total_size,
-        );
-
-        // Restore protection
-        region::protect(entry.target, total_size, region::Protection::READ_EXECUTE)
-            .map_err(|e| HookError::MemoryProtection(e.to_string()))?;
+    if !result.is_success() {
+        return Err(HookError::DisableFailed(
+            result.to_error_string().to_string(),
+        ));
     }
 
     entry.enabled = false;
     tracing::info!(
         "Disabled inline hook '{}' at {:x}",
         entry.name,
-        entry.target as usize
+        entry.target
     );
     Ok(())
 }
 
 /// Remove an inline hook completely
 pub fn remove_inline_hook(key: InlineHookKey) -> Result<(), HookError> {
-    // First disable if enabled
-    {
-        let hooks = INLINE_HOOKS.read();
-        if let Some(entry) = hooks.get(key) {
-            if entry.enabled {
-                drop(hooks);
-                disable_inline_hook(key)?;
-            }
-        }
-    }
-
     let mut hooks = INLINE_HOOKS.write();
     let entry = hooks.remove(key).ok_or(HookError::NotFound)?;
+
+    // Entry will be dropped here, which calls safetyhook_destroy_inline
 
     tracing::info!(
         "Removed inline hook '{}' at {:x}",
         entry.name,
-        entry.target as usize
+        entry.target
     );
     Ok(())
 }
@@ -350,15 +223,12 @@ pub fn is_inline_hook_enabled(key: InlineHookKey) -> bool {
 
 /// Get the target address of an inline hook
 pub fn get_inline_hook_target(key: InlineHookKey) -> Option<usize> {
-    INLINE_HOOKS.read().get(key).map(|e| e.target as usize)
+    INLINE_HOOKS.read().get(key).map(|e| e.target)
 }
 
 /// Get the original function trampoline for an inline hook
 pub fn get_inline_hook_original(key: InlineHookKey) -> Option<*const ()> {
-    INLINE_HOOKS
-        .read()
-        .get(key)
-        .map(|e| e.original_trampoline.as_ptr() as *const ())
+    INLINE_HOOKS.read().get(key).map(|e| e.trampoline)
 }
 
 /// Typed wrapper for inline hooks with proper original calling

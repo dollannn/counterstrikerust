@@ -1,18 +1,19 @@
 //! Hook system
 //!
 //! Provides multiple hook types:
-//! - Inline hooks (function detours via retour)
+//! - Inline hooks (function detours via SafetyHook)
 //! - VTable hooks (virtual function pointer replacement)
 //! - Mid-function hooks (arbitrary address with register context)
 //!
+//! Uses SafetyHook for proper hook chaining and multi-framework compatibility.
 //! Also contains Rust handlers for hooks installed via SourceHook in C++.
 
 pub mod context;
+mod ffi;
 pub mod gameframe;
 pub mod inline;
 pub mod manager;
 pub mod midhook;
-pub mod trampoline;
 pub mod vtable;
 
 // Re-export GameFrame types

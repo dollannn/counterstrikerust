@@ -4,6 +4,7 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=cpp/");
     println!("cargo:rerun-if-changed=src/");
+    println!("cargo:rerun-if-changed=../../third_party/safetyhook-amalg/");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
@@ -16,6 +17,8 @@ fn main() {
     let hl2sdk_path = env::var("HL2SDK_CS2")
         .map(PathBuf::from)
         .unwrap_or_else(|_| workspace_root.join("third_party/hl2sdk-cs2"));
+
+    let safetyhook_path = workspace_root.join("third_party/safetyhook-amalg");
 
     // Verify SDKs exist
     if !metamod_path.exists() {
@@ -30,12 +33,60 @@ fn main() {
             hl2sdk_path
         );
     }
+    if !safetyhook_path.exists() {
+        panic!(
+            "SafetyHook amalgamated files not found at {:?}. \
+             Download from https://github.com/cursey/safetyhook/releases",
+            safetyhook_path
+        );
+    }
 
     // Determine platform
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let is_windows = target_os == "windows";
 
-    // Build C++ bridge
+    // === Build Zydis (C library, dependency of SafetyHook) ===
+    let mut zydis_build = cc::Build::new();
+    zydis_build
+        .file(safetyhook_path.join("Zydis.c"))
+        .include(&safetyhook_path)
+        .define("ZYDIS_STATIC_BUILD", None);
+
+    if !is_windows {
+        zydis_build
+            .flag("-fvisibility=hidden")
+            .flag("-Wno-unused-parameter")
+            .flag("-Wno-sign-compare")
+            .flag("-Wno-unused-variable");
+    }
+
+    zydis_build.compile("zydis");
+
+    // === Build SafetyHook + bridge (C++23 required for std::expected on GCC) ===
+    let mut safetyhook_build = cc::Build::new();
+    safetyhook_build
+        .cpp(true)
+        .file(safetyhook_path.join("safetyhook.cpp"))
+        .file("cpp/safetyhook_bridge.cpp")
+        .include(&safetyhook_path)
+        .include("cpp"); // For safetyhook_bridge.h
+
+    if is_windows {
+        safetyhook_build
+            .flag("/std:c++23")
+            .flag("/EHsc")
+            .define("WIN32", None)
+            .define("_WINDOWS", None);
+    } else {
+        safetyhook_build
+            .flag("-std=c++23")
+            .flag("-fvisibility=hidden")
+            .flag("-Wno-unused-parameter");
+    }
+
+    safetyhook_build.compile("safetyhook_bridge");
+
+    // === Build Metamod bridge (C++17, doesn't need SafetyHook) ===
     let mut build = cc::Build::new();
 
     build
