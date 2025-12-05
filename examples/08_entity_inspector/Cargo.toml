@@ -1,0 +1,12 @@
+[package]
+name = "entity_inspector"
+version = "0.1.0"
+edition = "2021"
+description = "Provides commands to inspect entities on the server"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+cs2rust-core.workspace = true
+tracing.workspace = true

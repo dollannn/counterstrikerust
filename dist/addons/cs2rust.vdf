@@ -1,0 +1,5 @@
+"Metamod Plugin"
+{
+    "alias"    "cs2rust"
+    "file"     "addons/cs2rust/bin/linuxsteamrt64/cs2rust"
+}

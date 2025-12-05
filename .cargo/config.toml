@@ -1,0 +1,15 @@
+[build]
+# Uncomment to use release by default
+# profile = "release"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,--no-undefined"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = []
+
+[alias]
+# Quick build aliases
+b = "build"
+br = "build --release"
+t = "test"

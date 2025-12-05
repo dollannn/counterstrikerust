@@ -1,0 +1,15 @@
+[package]
+name = "cs2rust-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "cs2rust engine - Source 2 interface loading and global storage"
+
+[lib]
+name = "cs2rust_engine"
+
+[dependencies]
+cs2rust-sdk.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true

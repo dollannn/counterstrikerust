@@ -1,0 +1,7 @@
+{
+    global:
+        CreateInterface;
+        rust_*;
+    local:
+        *;
+};

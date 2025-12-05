@@ -1,0 +1,22 @@
+[package]
+name = "cs2rust-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "cs2rust Metamod loader - FFI exports and C++ bridge"
+
+[lib]
+name = "cs2rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+cs2rust-core.workspace = true
+cs2rust-sdk.workspace = true
+cs2rust-engine.workspace = true
+libc.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+cbindgen.workspace = true

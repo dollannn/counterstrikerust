@@ -1,0 +1,12 @@
+[package]
+name = "kill_tracker"
+version = "0.1.0"
+edition = "2021"
+description = "Tracks kills and deaths using game events"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+cs2rust-core.workspace = true
+tracing.workspace = true

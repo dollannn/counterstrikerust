@@ -1,0 +1,64 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    container:
+      image: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build
+        run: |
+          . $HOME/.cargo/env
+          cargo build --release
+          cp target/release/libcs2rust.so target/release/cs2rust.so
+
+      - name: Run tests
+        run: |
+          . $HOME/.cargo/env
+          cargo test
+
+      - name: Package
+        run: |
+          mkdir -p target/package/addons/cs2rust/bin/linuxsteamrt64
+          cp target/release/cs2rust.so target/package/addons/cs2rust/bin/linuxsteamrt64/
+          cp dist/addons/cs2rust.vdf target/package/addons/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs2rust-linux
+          path: target/package/addons/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs2rust-windows
+          path: target/release/cs2rust.dll

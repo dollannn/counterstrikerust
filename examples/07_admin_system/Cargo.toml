@@ -1,0 +1,12 @@
+[package]
+name = "admin_system"
+version = "0.1.0"
+edition = "2021"
+description = "Demonstrates permission system and admin commands"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+cs2rust-core.workspace = true
+tracing.workspace = true

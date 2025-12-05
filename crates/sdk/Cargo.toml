@@ -1,0 +1,13 @@
+[package]
+name = "cs2rust-sdk"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "cs2rust SDK - Source 2 type definitions"
+
+[lib]
+name = "cs2rust_sdk"
+
+# No dependencies - this crate is pure type definitions
+# This allows it to compile immediately and in parallel with other work
+[dependencies]

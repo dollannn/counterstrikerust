@@ -1,0 +1,11 @@
+/target
+Cargo.lock
+
+# Reference implementations (not distributed)
+/research/
+
+# Generated headers
+crates/plugin/cpp/rust_exports.h
+
+# Local clangd config (contains absolute paths)
+.clangd

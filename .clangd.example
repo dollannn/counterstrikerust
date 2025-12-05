@@ -1,0 +1,26 @@
+# Clangd configuration for CS2 Rust C++ bridge
+# Copy to .clangd and update paths if needed
+#
+# Uses SDKs from third_party/ (git submodules)
+
+CompileFlags:
+  Add:
+    - "-std=c++17"
+    - "-DLINUX"
+    - "-D_LINUX"
+    - "-DPOSIX"
+    - "-DCOMPILER_GCC"
+    - "-DPLATFORM_64BITS"
+    - "-DMETA_NO_HL2SDK"
+    - "-DSOURCE_ENGINE=28"
+    - "-DSE_CS2=28"
+    # Metamod includes - use absolute paths if relative don't work
+    - "-Ithird_party/metamod-source"
+    - "-Ithird_party/metamod-source/core"
+    - "-Ithird_party/metamod-source/core/sourcehook"
+    # HL2SDK includes
+    - "-Ithird_party/hl2sdk-cs2/public"
+    - "-Ithird_party/hl2sdk-cs2/public/tier0"
+    - "-Ithird_party/hl2sdk-cs2/public/tier1"
+    - "-Ithird_party/hl2sdk-cs2/public/entity2"
+    - "-Ithird_party/hl2sdk-cs2/game/server"

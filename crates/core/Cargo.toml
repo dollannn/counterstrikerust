@@ -1,0 +1,33 @@
+[package]
+name = "cs2rust-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "cs2rust core - Framework logic for CS2 modding"
+
+[lib]
+name = "cs2rust_core"
+
+[dependencies]
+cs2rust-sdk.workspace = true
+cs2rust-engine.workspace = true
+cs2rust-macros.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+crossbeam-channel.workspace = true
+slotmap.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+bitflags.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+# Hooking (custom implementation using iced-x86, works on stable Rust)
+iced-x86.workspace = true
+region.workspace = true
+paste.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+libc.workspace = true

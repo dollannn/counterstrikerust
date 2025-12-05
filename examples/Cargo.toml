@@ -1,0 +1,28 @@
+# CS2Rust Example Plugins
+#
+# This workspace contains example plugins that demonstrate the core functionality
+# of the CS2Rust framework, progressing from beginner to advanced complexity.
+#
+# Usage:
+#   cargo build -p hello_world     # Build single example
+#   cargo build --workspace        # Build all examples
+
+[workspace]
+resolver = "2"
+members = [
+    "01_hello_world",
+    "02_player_greeter",
+    "03_basic_commands",
+    "04_kill_tracker",
+    "05_announcements",
+    "06_plugin_settings",
+    "07_admin_system",
+    "08_entity_inspector",
+    "09_round_manager",
+    "10_advanced_integration",
+]
+
+[workspace.dependencies]
+cs2rust-core = { path = "../crates/core" }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }

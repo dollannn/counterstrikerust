@@ -1,0 +1,45 @@
+{
+  "servers": [
+    {
+      "extensions": [
+        "rs"
+      ],
+      "command": [
+        "rust-analyzer"
+      ],
+      "rootDir": "."
+    },
+    {
+      "extensions": [
+        "c",
+        "cpp",
+        "cc",
+        "h",
+        "hpp"
+      ],
+      "command": [
+        "clangd"
+      ],
+      "rootDir": "."
+    },
+    {
+      "extensions": [
+        "cs"
+      ],
+      "command": [
+        "omnisharp",
+        "-lsp"
+      ],
+      "rootDir": "."
+    },
+    {
+      "extensions": [
+        "lua"
+      ],
+      "command": [
+        "lua-language-server"
+      ],
+      "rootDir": "."
+    }
+  ]
+}

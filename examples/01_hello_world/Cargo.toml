@@ -1,0 +1,12 @@
+[package]
+name = "hello_world"
+version = "0.1.0"
+edition = "2021"
+description = "The simplest CS2Rust plugin - demonstrates map lifecycle events"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+cs2rust-core.workspace = true
+tracing.workspace = true
